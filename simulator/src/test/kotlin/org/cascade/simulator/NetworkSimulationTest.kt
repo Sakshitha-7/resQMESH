@@ -1,4 +1,6 @@
 package org.cascade.simulator
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
@@ -59,5 +61,21 @@ class NetworkSimulationTest {
     @Test(expected = IllegalArgumentException::class)
     fun `CLI rejects unsupported node counts`() {
         parseSimulationOptions(arrayOf("201"))
+    }
+
+    @Test fun `CLI help prints usage and skips simulation`() {
+        val originalOutput = System.out
+        val capturedOutput = ByteArrayOutputStream()
+        try {
+            System.setOut(PrintStream(capturedOutput))
+            main(arrayOf("--help"))
+        } finally {
+            System.setOut(originalOutput)
+        }
+
+        val output = capturedOutput.toString(Charsets.UTF_8)
+        assertTrue(output.contains("Usage: simulator"))
+        assertTrue(output.contains("Defaults: 100 nodes, seed 42"))
+        assertTrue(!output.contains("METRIC"))
     }
 }

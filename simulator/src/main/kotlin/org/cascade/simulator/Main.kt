@@ -86,6 +86,10 @@ object NetworkSimulation {
 
 internal data class SimulationOptions(val nodeCount: Int, val seed: Int)
 
+private const val SIMULATOR_USAGE =
+    "Usage: simulator [node-count] [--nodes count] [--seed value]\n" +
+        "Defaults: 100 nodes, seed 42. Node count must be between 50 and 200."
+
 internal fun parseSimulationOptions(args: Array<String>): SimulationOptions {
     var nodeCount = 100
     var seed = 42
@@ -102,7 +106,7 @@ internal fun parseSimulationOptions(args: Array<String>): SimulationOptions {
     while (index < args.size) {
         val option = args[index]
         require(option == "--nodes" || option == "--seed") {
-            "Usage: simulator [node-count] [--nodes count] [--seed value]"
+            SIMULATOR_USAGE
         }
         require(seen.add(option)) { "$option may only be specified once." }
         require(index + 1 < args.size) { "$option requires an integer value." }
@@ -120,6 +124,11 @@ internal fun parseSimulationOptions(args: Array<String>): SimulationOptions {
 }
 
 fun main(args: Array<String>) {
+    if (args.contentEquals(arrayOf("--help")) || args.contentEquals(arrayOf("-h"))) {
+        println(SIMULATOR_USAGE)
+        return
+    }
+
     val options = parseSimulationOptions(args)
     val result = NetworkSimulation.run(options.nodeCount, options.seed)
     println(result.table())

@@ -273,6 +273,8 @@ The universal debug APK is at `app/build/outputs/apk/debug/app-universal-debug.a
 
 The simulator prints its seed so synthetic reports can be reproduced. The default seed is `42`; node counts from `50` to `200` are supported. A fixed seed reproduces only the simulator's synthetic report, not real-world mesh behavior.
 
+Run `./gradlew :simulator:run --args="--help"` to see the available options.
+
 To run the inherited Android unit suite and lint:
 
 ```sh
