@@ -1,6 +1,7 @@
 package org.cascade.simulator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 class NetworkSimulationTest {
     @Test fun allSupportedNetworkSizesConvergeUnderAttacks() {
@@ -34,6 +35,25 @@ class NetworkSimulationTest {
 
     @Test fun `CLI accepts named node count and seed`() {
         assertEquals(SimulationOptions(50,9),parseSimulationOptions(arrayOf("--nodes","50","--seed","9")))
+    }
+
+    @Test fun `CLI defaults to the documented baseline`() {
+        assertEquals(SimulationOptions(100,42),parseSimulationOptions(emptyArray()))
+    }
+
+    @Test fun `CLI rejects missing duplicate and unknown options`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            parseSimulationOptions(arrayOf("--seed"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            parseSimulationOptions(arrayOf("--seed","1","--seed","2"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            parseSimulationOptions(arrayOf("100","--nodes","200"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            parseSimulationOptions(arrayOf("--format","json"))
+        }
     }
 
     @Test(expected = IllegalArgumentException::class)
