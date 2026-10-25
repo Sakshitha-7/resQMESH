@@ -336,4 +336,3 @@ See [the GPL-3.0 license](LICENSE.md) and the upstream project's retained attrib
 
 ---
 
-<p align="center"><strong>resQ mesh</strong> · Built on Bitchat Android · GPL-3.0<br><a href="#resq-mesh">Back to top ↑</a></p>
