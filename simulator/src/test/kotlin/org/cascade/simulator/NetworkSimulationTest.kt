@@ -26,4 +26,18 @@ class NetworkSimulationTest {
     @Test fun `same seed produces identical simulation results`() {
         assertEquals(NetworkSimulation.run(100,42),NetworkSimulation.run(100,42))
     }
+
+    @Test fun `CLI accepts a reproducible seed and preserves positional node count`() {
+        assertEquals(SimulationOptions(100,73),parseSimulationOptions(arrayOf("100","--seed","73")))
+        assertTrue(NetworkSimulation.run(100,73).table().contains("100 nodes · seed 73"))
+    }
+
+    @Test fun `CLI accepts named node count and seed`() {
+        assertEquals(SimulationOptions(50,9),parseSimulationOptions(arrayOf("--nodes","50","--seed","9")))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `CLI rejects unsupported node counts`() {
+        parseSimulationOptions(arrayOf("201"))
+    }
 }

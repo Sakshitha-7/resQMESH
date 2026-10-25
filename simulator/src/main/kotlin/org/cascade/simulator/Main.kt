@@ -7,9 +7,9 @@ import java.util.Locale
 import kotlin.random.Random
 
 data class Metric(val name: String, val value: String, val passed: Boolean)
-data class SimulationResult(val nodes: Int, val metrics: List<Metric>) {
+data class SimulationResult(val nodes: Int, val seed: Int, val metrics: List<Metric>) {
     fun table() = buildString {
-        appendLine("CASCADE MESH · synthetic JVM network · $nodes nodes")
+        appendLine("CASCADE MESH · synthetic JVM network · $nodes nodes · seed $seed")
         appendLine("METRIC                           VALUE          RESULT")
         appendLine("-----------------------------------------------------")
         metrics.forEach { appendLine("${it.name.padEnd(32)} ${it.value.padEnd(14)} ${if (it.passed) "PASS" else "FAIL"}") }
@@ -80,12 +80,48 @@ object NetworkSimulation {
         metrics += Metric("Forged medic excluded",selected.size.toString(),selected.isEmpty())
         val cost=CostModel().estimate(1000,400,0,50,10,3)
         metrics += Metric("Relay battery model","${cost.estimatedBatteryUnits} units / ${cost.relayDutyPercent}% duty",cost.relayDutyPercent==15)
-        return SimulationResult(nodeCount,metrics)
+        return SimulationResult(nodeCount,seed,metrics)
     }
 }
 
+internal data class SimulationOptions(val nodeCount: Int, val seed: Int)
+
+internal fun parseSimulationOptions(args: Array<String>): SimulationOptions {
+    var nodeCount = 100
+    var seed = 42
+    var index = 0
+    val seen = mutableSetOf<String>()
+
+    if (args.firstOrNull()?.startsWith("--") == false) {
+        nodeCount = args[0].toIntOrNull()
+            ?: throw IllegalArgumentException("Node count must be an integer.")
+        seen += "--nodes"
+        index = 1
+    }
+
+    while (index < args.size) {
+        val option = args[index]
+        require(option == "--nodes" || option == "--seed") {
+            "Usage: simulator [node-count] [--nodes count] [--seed value]"
+        }
+        require(seen.add(option)) { "$option may only be specified once." }
+        require(index + 1 < args.size) { "$option requires an integer value." }
+        val value = args[index + 1].toIntOrNull()
+            ?: throw IllegalArgumentException("$option requires an integer value.")
+        when (option) {
+            "--nodes" -> nodeCount = value
+            "--seed" -> seed = value
+        }
+        index += 2
+    }
+
+    require(nodeCount in 50..200) { "Node count must be between 50 and 200." }
+    return SimulationOptions(nodeCount, seed)
+}
+
 fun main(args: Array<String>) {
-    val result=NetworkSimulation.run(args.firstOrNull()?.toIntOrNull() ?: 100)
+    val options = parseSimulationOptions(args)
+    val result = NetworkSimulation.run(options.nodeCount, options.seed)
     println(result.table())
     check(result.metrics.all { it.passed }) { "Simulation regression" }
 }
