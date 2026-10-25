@@ -6,9 +6,9 @@ All test coordinates, identities, claims and actors are synthetic. No physical d
 
 ```sh
 ./gradlew :domain:test :pipeline:test :crypto:test :simulator:test
-./gradlew :simulator:run --args=50
-./gradlew :simulator:run --args=100
-./gradlew :simulator:run --args=200
+./gradlew :simulator:run --args="--nodes 50 --seed 42"
+./gradlew :simulator:run --args="--nodes 100 --seed 42"
+./gradlew :simulator:run --args="--nodes 200 --seed 42"
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 ./gradlew :app:assembleRelease
 ```
@@ -21,7 +21,7 @@ Reports are under each module's `build/reports/tests`. Android lint output is un
 
 The 100-node baseline uses two partitioned islands, ten incidents and two conflicting dispatches per incident. Five second-island responders arrive before reconnection. Randomized pairwise gossip with a fixed seed must converge. The expected safety outcomes are ten superseded competing dispatches and zero automatic at-door cancellations. The baseline also injects 20 forged signatures, 20 replays, 150 burst packets and 40 young identities.
 
-Results report observed counts in these fixtures, not a medical validation, probabilistic real-world attack detection estimate or battery benchmark. Battery cost is an abstract model unit. Run with 50 or 200 to change the network size.
+Results report observed counts in these fixtures, not a medical validation, probabilistic real-world attack detection estimate or battery benchmark. Battery cost is an abstract model unit. Run with 50 or 200 to change the network size. The CLI accepts `--nodes` from 50 through 200 and an integer `--seed`; it prints the seed with the results. The default seed is 42, and the positional node-count form remains supported. Repeating a node count and seed reproduces the synthetic report, not real-world network behavior.
 
 ## Two-phone acceptance test
 
