@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "default": "resq-mesh-app"
+  },
+  "targets": {
+    "resq-mesh-app": {
+      "hosting": {
+        "resqmeshnet": ["resq-meshnet"]
+      }
+    }
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "hosting": {
+    "target": "resqmeshnet",
+    "public": "website",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "serve.cjs",
+      "README.md",
+      "VALIDATION.md",
+      "downloads/*.apk"
+    ],
+    "redirects": [
+      {
+        "source": "/downloads/resq-mesh-0.3.0-debug.apk",
+        "type": 302,
+        "destination": "https://github.com/hydra-eng/resq-mesh/releases/download/v0.3.0/resq-mesh-0.3.0-debug.apk"
+      },
+      {
+        "source": "/downloads/resq-mesh-0.2.0-debug.apk",
+        "type": 302,
+        "destination": "https://github.com/hydra-eng/resq-mesh/releases/download/v0.2.0/resq-mesh-0.2.0-debug.apk"
+      }
+    ],
+    "headers": [
+      {
+        "source": "/index.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          },
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "Referrer-Policy",
+            "value": "strict-origin-when-cross-origin"
+          }
+        ]
+      },
+      {
+        "source": "/downloads/SHA256SUMS.txt",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public,max-age=3600"
+          },
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          }
+        ]
+      }
+    ]
+  }
+}
