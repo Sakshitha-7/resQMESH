@@ -5,9 +5,17 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
 import android.speech.*
 import androidx.activity.ComponentActivity
@@ -43,6 +51,9 @@ class CascadeActivity : ComponentActivity() {
     private var voiceResult: ((String)->Unit)?=null
     private var photoResult: ((String)->Unit)?=null
     private var locationJob: Job?=null
+    private var sosRingtone: Ringtone?=null
+    private var sosAlarmJob: Job?=null
+    private var sosAudioFocusRequest: AudioFocusRequest?=null
     private val radioReceiver=object:android.content.BroadcastReceiver() {
         override fun onReceive(context:android.content.Context,intent:Intent) {
             when(intent.getIntExtra(android.bluetooth.BluetoothAdapter.EXTRA_STATE,-1)) {
@@ -92,6 +103,12 @@ class CascadeActivity : ComponentActivity() {
             batterySettings={ startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
         ),chatRequest.value) }
         lifecycleScope.launch { val initial=repository.state.first { it.ready }; if(initial.onboarded) startIfPermitted() }
+        // Subscribe to incoming SOS alerts from mesh peers and sound the alarm
+        lifecycleScope.launch {
+            repository.sosAlertFlow.collect { senderIdentity ->
+                soundSosAlarm()
+            }
+        }
     }
     private fun acceptChatIntent(intent: Intent) {
         if(intent.getBooleanExtra(com.bitchat.android.ui.NotificationManager.EXTRA_OPEN_PRIVATE_CHAT,false)) {
@@ -211,5 +228,110 @@ class CascadeActivity : ComponentActivity() {
             startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM,uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),"Export sanitized log"))
         }
     } }
-    override fun onDestroy() { unregisterReceiver(radioReceiver); speech?.destroy(); io.cancel(); super.onDestroy() }
+    override fun onDestroy() { unregisterReceiver(radioReceiver); speech?.destroy(); io.cancel(); stopSosAlarm(); super.onDestroy() }
+
+    /**
+     * Sounds the system alarm ringtone at full ALARM-stream volume for up to 8 seconds.
+     * Falls back to a strong SOS vibration pattern (... --- ...) if the ringtone cannot play
+     * or the ringer is in silent/vibrate mode. Both sound and vibration are applied when possible.
+     */
+    private fun soundSosAlarm() {
+        stopSosAlarm()  // cancel any previously playing alarm first
+
+        val audioManager = getSystemService(AUDIO_SERVICE) as? AudioManager
+
+        // ── Vibration (always: works even in silent mode) ──────────────────────
+        // SOS morse pattern: ... (short short short) --- (long long long) ... (short short short)
+        // Format: [delay, on, off, on, off, ...] in ms
+        val sosMorse = longArrayOf(
+            0L,
+            /* S */ 100, 100, 100, 100, 100, 200,
+            /* O */ 300, 300, 300, 300, 300, 200,
+            /* S */ 100, 100, 100, 100, 100, 500
+        )
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = getSystemService(VibratorManager::class.java)?.defaultVibrator
+                vm?.vibrate(VibrationEffect.createWaveform(sosMorse, -1))
+            } else {
+                @Suppress("DEPRECATION")
+                val vib = getSystemService(VIBRATOR_SERVICE) as? Vibrator
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vib?.vibrate(VibrationEffect.createWaveform(sosMorse, -1))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vib?.vibrate(sosMorse, -1)
+                }
+            }
+        } // vibration failure is non-critical
+
+        // ── Audio ringtone ─────────────────────────────────────────────────────
+        runCatching {
+            val uri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                ?: return@runCatching
+
+            // Request audio focus on the ALARM stream so we override DnD / media.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioManager != null) {
+                val focusReq = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                    .setAcceptsDelayedFocusGain(false)
+                    .build()
+                sosAudioFocusRequest = focusReq
+                audioManager.requestAudioFocus(focusReq)
+            }
+
+            val ringtone = RingtoneManager.getRingtone(applicationContext, uri) ?: return@runCatching
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                ringtone.audioAttributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                // Raise alarm stream to max regardless of ringer mode.
+                audioManager?.setStreamVolume(
+                    AudioManager.STREAM_ALARM,
+                    audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM),
+                    0
+                )
+                ringtone.volume = 1.0f
+                ringtone.isLooping = false
+            }
+            sosRingtone = ringtone
+            ringtone.play()
+        }.onFailure {
+            // Sound failed — vibration above is the fallback; notify as a safety net.
+            repository.notifyUser("⚡ SOS Alert received! (Alarm audio unavailable: ${it.message})")
+        }
+
+        // Auto-stop after 8 seconds.
+        sosAlarmJob = lifecycleScope.launch {
+            delay(8_000L)
+            stopSosAlarm()
+        }
+    }
+
+    private fun stopSosAlarm() {
+        sosAlarmJob?.cancel(); sosAlarmJob = null
+        sosRingtone?.stop(); sosRingtone = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            sosAudioFocusRequest?.let {
+                (getSystemService(AUDIO_SERVICE) as? AudioManager)?.abandonAudioFocusRequest(it)
+            }
+        }
+        sosAudioFocusRequest = null
+        // Cancel any active vibration.
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                getSystemService(VibratorManager::class.java)?.defaultVibrator?.cancel()
+            } else {
+                @Suppress("DEPRECATION")
+                (getSystemService(VIBRATOR_SERVICE) as? Vibrator)?.cancel()
+            }
+        }
+    }
 }

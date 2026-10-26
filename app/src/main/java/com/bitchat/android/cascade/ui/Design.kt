@@ -10,11 +10,17 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.*
 import androidx.compose.ui.unit.*
 import com.bitchat.android.R
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role as SemanticRole
 import androidx.compose.ui.graphics.luminance
 import kotlin.math.sin
 
@@ -98,3 +104,146 @@ fun urgencyColor(value: Int) = when(value) { 5->Color(0xFF7D9282); 4->Color(0xFF
 @Composable fun EmptyState(title: String,body: String) {
     Panel { Label("NO SIGNAL YET"); Text(title,fontSize=23.sp,fontWeight=FontWeight.Bold); Text(body,fontSize=14.sp) }
 }
+
+/**
+ * Big animated SOS button. When [active] is true (alert already sent) it shows a cancel/clear variant.
+ * Renders three concentric pulsing rings in danger-red that expand and fade outward to maximise urgency signal.
+ * When active the rings stop and the button adopts a dark cancel state with a slow heartbeat pulse.
+ */
+@Composable fun SosAlertButton(active: Boolean, peersOnline: Int, onClick: () -> Unit) {
+    val infiniteTransition = rememberInfiniteTransition(label = "sos_pulse")
+
+    // Three staggered expanding ring pulses — rings start at inner radius and expand outward, fading as they grow.
+    // Progress 0.0 = ring at inner edge (full alpha), 1.0 = ring at outer edge (alpha → 0).
+    val ring1 by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart),
+        label = "ring1"
+    )
+    val ring2 by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1800, 600, easing = LinearEasing), RepeatMode.Restart),
+        label = "ring2"
+    )
+    val ring3 by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1800, 1200, easing = LinearEasing), RepeatMode.Restart),
+        label = "ring3"
+    )
+
+    // Heartbeat scale: subtle when idle, more pronounced when active (alert sent).
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1.00f, targetValue = if (active) 1.06f else 1.02f,
+        animationSpec = infiniteRepeatable(
+            tween(if (active) 600 else 1000, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+
+    val sosRed    = Color(0xFFD32F2F)
+    val sosDark   = Color(0xFFB71C1C)   // deeper red for the outer glow shadow
+    val sosLight  = Color(0xFFFF5252)   // bright accent for border glow
+    val cancelBg  = Color(0xFF263238)   // dark blue-grey when alert is already sent
+    val cancelBdr = Color(0xFF546E7A)
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Box(
+            modifier = Modifier.size(240.dp).clearAndSetSemantics {},
+            contentAlignment = Alignment.Center
+        ) {
+            // Pulsing rings only while idle (alert not yet sent).
+            if (!active) {
+                Canvas(Modifier.matchParentSize()) {
+                    val center = Offset(size.width / 2f, size.height / 2f)
+                    // innerRadius = edge of the 160 dp button (80 dp in pixels), outerRadius = half of 240 dp (120 dp).
+                    val innerR = size.minDimension * (80f / 240f)
+                    val outerR = size.minDimension * 0.5f
+                    listOf(
+                        ring1 to 0.22f,
+                        ring2 to 0.17f,
+                        ring3 to 0.12f
+                    ).forEach { (progress, peakAlpha) ->
+                        // As progress goes 0→1, radius goes innerR→outerR, alpha goes peakAlpha→0.
+                        val radius = innerR + (outerR - innerR) * progress
+                        val alpha  = peakAlpha * (1f - progress).coerceIn(0f, 1f)
+                        drawCircle(
+                            color  = sosRed.copy(alpha = alpha),
+                            radius = radius,
+                            center = center
+                        )
+                    }
+                }
+            }
+
+            // Core circular button
+            Box(
+                modifier = Modifier
+                    .size(160.dp)
+                    .graphicsLayer(scaleX = scale, scaleY = scale)
+                    .background(
+                        color  = if (active) cancelBg else sosRed,
+                        shape  = androidx.compose.foundation.shape.CircleShape
+                    )
+                    .border(
+                        width  = 4.dp,
+                        color  = if (active) cancelBdr else sosLight.copy(alpha = 0.70f),
+                        shape  = androidx.compose.foundation.shape.CircleShape
+                    )
+                    .semantics {
+                        role = SemanticRole.Button
+                        contentDescription = if (active)
+                            "SOS alert active. Tap to cancel."
+                        else
+                            "Send SOS emergency alert to $peersOnline nearby device${if (peersOnline != 1) "s" else ""}. Tap to confirm."
+                    }
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null,
+                        onClick = onClick
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text         = if (active) "SENT" else "SOS",
+                        color        = Color.White,
+                        fontFamily   = Display,
+                        fontSize     = 52.sp,
+                        fontWeight   = FontWeight.Black,
+                        letterSpacing = 4.sp
+                    )
+                    Text(
+                        text         = if (active) "ALERT ACTIVE" else "TAP TO ALERT",
+                        color        = Color.White.copy(alpha = 0.80f),
+                        fontFamily   = Mono,
+                        fontSize     = 9.sp,
+                        letterSpacing = 1.2.sp
+                    )
+                }
+            }
+        }
+
+        // Status text below the button.
+        Text(
+            text = when {
+                active       -> "⚡ Alert broadcast to $peersOnline nearby device${if (peersOnline != 1) "s" else ""}. Tap button to cancel."
+                peersOnline > 0 -> "Tap to broadcast emergency alert to $peersOnline nearby device${if (peersOnline != 1) "s" else ""}"
+                else         -> "No nearby devices detected — alert will be queued and relayed when a peer appears."
+            },
+            fontFamily  = Mono,
+            fontSize    = 10.sp,
+            color       = if (active) sosRed else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier    = Modifier.padding(horizontal = 24.dp),
+            textAlign   = androidx.compose.ui.text.style.TextAlign.Center
+        )
+    }
+}
+

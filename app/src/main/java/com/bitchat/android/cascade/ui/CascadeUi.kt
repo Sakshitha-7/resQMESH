@@ -129,7 +129,83 @@ fun CascadeUi(repository: CascadeRepository,device: DeviceActions,chatRequest: P
 }
 @Composable private fun Command(s: CascadeState,r: CascadeRepository,navigate: (String)->Unit,device: DeviceActions) {
     val haptic=LocalHapticFeedback.current
+    var showSosConfirm by remember { mutableStateOf(false) }
+    val sosRed = Color(0xFFD32F2F)
+
     Headline("HOME",if(s.language=="HI") "एक दूसरे\nके साथ।" else "How can we\nhelp today?")
+
+    // ── Big SOS Alert Button ──────────────────────────────────────────────────
+    SosAlertButton(
+        active = s.sosAlertActive,
+        peersOnline = s.mesh.peers.size,
+        onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            if (s.sosAlertActive) r.cancelSosAlert()
+            else showSosConfirm = true
+        }
+    )
+
+    // ── SOS confirm dialog ────────────────────────────────────────────────────
+    if (showSosConfirm) {
+        AlertDialog(
+            onDismissRequest = { showSosConfirm = false },
+            title = {
+                Text(
+                    "⚡ Send SOS Alert?",
+                    fontFamily = Display,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp,
+                    color = sosRed
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (s.mesh.peers.isEmpty()) {
+                        Text(
+                            "⚠ No nearby devices detected. The alert will be saved and broadcast as soon as a mesh peer comes within range.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Text(
+                            "This will broadcast an emergency SOS alarm to all ${s.mesh.peers.size} nearby device${if (s.mesh.peers.size != 1) "s" else ""} over Bluetooth. Each device will sound an alarm.",
+                            fontSize = 14.sp
+                        )
+                    }
+                    Text(
+                        "Only use in a real emergency. This alert cannot be recalled from devices that have already relayed it.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSosConfirm = false
+                        r.sendSosAlert()
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = sosRed)
+                ) {
+                    Text(
+                        "SEND SOS ALERT",
+                        color = Color.White,
+                        fontFamily = Display,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSosConfirm = false }) {
+                    Text("Cancel", fontFamily = Display, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        )
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     Action(if(s.language=="HI") "SOS / मदद चाहिए" else "Request help / SOS",Blue) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); navigate("SOS") }
     Action(if(s.language=="HI") "मैं मदद कर सकता हूँ →" else "Offer help",Green) { r.setRole(Role.RESPONDER); navigate("PROFILE") }
     Action("Nearby devices · ${s.mesh.peers.size}",Paper) { navigate("PEOPLE") }

@@ -21,6 +21,9 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Emitted to every observer when an SOS alert arrives from any mesh peer or the local device. */
+const val SOS_ALERT_FIELD = "sos_alert"
+
 data class PrivateRecord(val text: String, val latitude: Double?, val longitude: Double?, val photo: String?, val flags: Set<String>)
 data class PeerReview(val capabilities: Set<String>, val group: String, val verifiedAt: Long)
 data class SavedContact(val peer: String,val name: String)
@@ -40,7 +43,8 @@ data class CascadeState(
     val reviews: Map<String,PeerReview> = emptyMap(), val simulation: String="", val simulationRunning: Boolean=false,
     val available: Boolean=false, val capabilities: Set<String> = emptySet(), val capacity: Int=1, val radius: Int=5000,
     val notice: String="", val rejectionCount: Int=0, val demo: Boolean=false,
-    val contacts: List<SavedContact> = emptyList(), val chats: List<DirectChat> = emptyList()
+    val contacts: List<SavedContact> = emptyList(), val chats: List<DirectChat> = emptyList(),
+    val sosAlertActive: Boolean=false
 )
 
 /** One actor owns state, database writes, Lamport clock and admission; UI only sends intents. */
@@ -50,6 +54,9 @@ class CascadeRepository @Inject constructor(@ApplicationContext private val cont
     private val actions=Channel<suspend () -> Unit>(128)
     private val mutable=MutableStateFlow(CascadeState())
     val state=mutable.asStateFlow()
+    /** Hot flow that fires once per incoming SOS alert (sender identity). Subscribers play an alarm. */
+    private val _sosAlertFlow=MutableSharedFlow<String>(extraBufferCapacity=4)
+    val sosAlertFlow: SharedFlow<String> = _sosAlertFlow.asSharedFlow()
     private val gson=Gson()
     private val db by lazy { Room.databaseBuilder(context,CascadeDatabase::class.java,"cascade.db").build() }
     private val vault by lazy {
@@ -109,6 +116,11 @@ class CascadeRepository @Inject constructor(@ApplicationContext private val cont
                 is Admission.Accepted -> {
                     val packet=if(result.packet.fact.kind==EventKind.HISTORY) gate.historical(result.packet,System.currentTimeMillis()) ?: return@enqueue else result.packet
                     if(packet.fact.author in mutable.value.blocked) return@enqueue
+                    // Fire SOS alert for incoming sos_alert facts from other devices
+                    if(packet.fact.kind==EventKind.DISTRESS && packet.fact.value(SOS_ALERT_FIELD)=="true" && packet.fact.author!=mutable.value.identity) {
+                        _sosAlertFlow.tryEmit(packet.fact.author)
+                        event("⚡ SOS ALERT received from nearby device — alarm triggered")
+                    }
                     save(packet,false)
                     processPrivate()
                     planOffers()
@@ -404,4 +416,40 @@ class CascadeRepository @Inject constructor(@ApplicationContext private val cont
             notice("Android could not clear all data. Use App info > Storage > Clear storage.")
     }
     fun notifyUser(message: String) { notice(message) }
+
+    /**
+     * Broadcasts an immediate SOS alert over the mesh to all nearby devices.
+     * Uses urgency=5 DISTRESS with [SOS_ALERT_FIELD]=true so receiving nodes can trigger an audible alarm.
+     * Does NOT require GPS — falls back to a default cell when location is unavailable.
+     */
+    fun sendSosAlert() { enqueue {
+        require(!mutable.value.demo)
+        val cell = if (Geo.valid(mutable.value.cell)) mutable.value.cell else
+            mutable.value.gps?.let { Geo.encode(it.latitude, it.longitude) } ?: "s0000"
+        val packet = newPacket(
+            EventKind.DISTRESS,
+            mapOf(
+                "urgency" to "5",
+                "headcount" to "1",
+                "required" to "rescue",
+                "battery" to mutable.value.battery.toString(),
+                SOS_ALERT_FIELD to "true"
+            ),
+            cell,
+            life = 300_000L  // 5 minutes TTL
+        )
+        mutable.value = mutable.value.copy(sosAlertActive = true)
+        save(packet)
+        notice("⚡ SOS ALERT sent to all nearby devices!")
+        event("⚡ SOS ALERT broadcast · all nearby devices will sound an alarm")
+        // Auto-clear the sent state after 5 minutes to allow re-trigger
+        scope.launch { delay(300_000L); mutable.value = mutable.value.copy(sosAlertActive = false) }
+    } }
+
+    fun cancelSosAlert() { enqueue {
+        if (mutable.value.demo || !mutable.value.sosAlertActive) return@enqueue
+        mutable.value = mutable.value.copy(sosAlertActive = false)
+        notice("SOS Alert cancelled locally. Already-relayed packets cannot be recalled.")
+        event("SOS ALERT cancelled by user · mesh copies cannot be retracted")
+    } }
 }
