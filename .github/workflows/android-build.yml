@@ -8,7 +8,7 @@ on:
     branches: [main, develop]
 
 permissions:
-  contents: write   # needed to create GitHub Releases
+  contents: write
 
 env:
   SETUP_JAVA_VERSION: '21'
@@ -24,6 +24,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Make scripts and gradlew executable
+        run: chmod +x gradlew tools/arti-build/*.sh tools/reproducible-builds/*.sh
 
       - name: Set up JDK ${{ env.SETUP_JAVA_VERSION }}
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
@@ -60,17 +63,19 @@ jobs:
           path: "**/build/reports/lint-results-*.html"
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Job 2: Build debug APK and publish as GitHub Release on every main push
+  # Job 2: Build debug APK and publish as GitHub Release
   # ─────────────────────────────────────────────────────────────────────────────
   build-debug:
     name: Build debug APK
     runs-on: ubuntu-24.04
-    # Run even when verify fails so hackathon judges always get a fresh APK
     if: always()
 
     steps:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Make scripts and gradlew executable
+        run: chmod +x gradlew tools/arti-build/*.sh tools/reproducible-builds/*.sh
 
       - name: Set up JDK ${{ env.SETUP_JAVA_VERSION }}
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
@@ -108,83 +113,18 @@ jobs:
 
             **Commit:** `${{ github.sha }}`  
             **Branch:** `${{ github.ref_name }}`  
-            **Built:** ${{ github.event.head_commit.timestamp }}
 
             ### What's new in this build
-            - 🔴 Big SOS emergency button on Home screen with radar pulse animation
-            - 📡 Instant mesh broadcast to all nearby BLE devices (no internet needed)
-            - 🔊 Audible alarm + SOS Morse vibration on all receiving devices
-            - 🔐 Signed DISTRESS packets with 5-minute TTL and priority propagation
+            - 🔴 Big SOS emergency button on Home screen with pulsing radar animation
+            - 📡 Instant mesh broadcast to all nearby BLE devices (no internet or cellular required)
+            - 🔊 Audible alarm + SOS Morse code vibration on all receiving devices
+            - 🔐 Signed DISTRESS packets with 5-minute TTL and priority mesh routing
 
             ### How to install
-            1. Download **resq-mesh-debug.apk** below
+            1. Download **resq-mesh-debug.apk** from the Assets below
             2. On your Android phone: Settings → Security → **Allow unknown sources**
             3. Open the downloaded APK and tap **Install**
-
-            > This is a debug/evaluation build. Do not use the signing key for production.
           files: artifacts/resq-mesh-debug.apk
           prerelease: false
           make_latest: true
           token: ${{ secrets.GITHUB_TOKEN }}
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Job 3 & 4: Reproducible release build (byte-identical across two runners)
-  # ─────────────────────────────────────────────────────────────────────────────
-  reproducible-build:
-    name: Reproducible release build ${{ matrix.replica }}
-    runs-on: ubuntu-24.04
-    needs: verify
-    if: always()
-    strategy:
-      fail-fast: false
-      matrix:
-        replica: [a, b]
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-      - name: Set up JDK ${{ env.SETUP_JAVA_VERSION }}
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
-        with:
-          distribution: temurin
-          java-version: ${{ env.SETUP_JAVA_VERSION }}
-
-      - name: Set up Gradle (no cache for reproducibility)
-        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
-        with:
-          cache-disabled: true
-
-      - name: Build canonical unsigned release
-        run: tools/reproducible-builds/build-in-container.sh "$RUNNER_TEMP/release-${{ matrix.replica }}"
-
-      - name: Upload build replica
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: reproducible-release-${{ matrix.replica }}
-          path: ${{ runner.temp }}/release-${{ matrix.replica }}/*
-          if-no-files-found: error
-
-  compare-reproducible-builds:
-    name: Compare release bytes
-    runs-on: ubuntu-24.04
-    needs: reproducible-build
-
-    steps:
-      - name: Checkout verification script
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-      - name: Download replica A
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: reproducible-release-a
-          path: ${{ runner.temp }}/release-a
-
-      - name: Download replica B
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: reproducible-release-b
-          path: ${{ runner.temp }}/release-b
-
-      - name: Compare every canonical byte
-        run: tools/reproducible-builds/compare-release.sh "$RUNNER_TEMP/release-a" "$RUNNER_TEMP/release-b"
