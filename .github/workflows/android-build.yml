@@ -89,16 +89,26 @@ jobs:
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug
 
-      - name: Rename APK for clarity
+      - name: Organize APK artifacts
         run: |
           mkdir -p artifacts
-          cp app/build/outputs/apk/debug/*.apk artifacts/resq-mesh-debug.apk
+          for f in app/build/outputs/apk/debug/*.apk; do
+            if [ -f "$f" ]; then
+              base=$(basename "$f")
+              cp "$f" "artifacts/$base"
+              if [[ "$base" == *universal* ]]; then
+                cp "$f" "artifacts/resq-mesh-universal-debug.apk"
+              fi
+            fi
+          done
+          echo "Generated APK files:"
+          ls -la artifacts/
 
-      - name: Upload debug APK artifact
+      - name: Upload debug APK artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: resq-mesh-debug-apk
-          path: artifacts/resq-mesh-debug.apk
+          name: resq-mesh-debug-apks
+          path: artifacts/*.apk
           retention-days: 30
 
       # Create/update a rolling "latest" GitHub Release on every push to main
@@ -121,10 +131,10 @@ jobs:
             - 🔐 Signed DISTRESS packets with 5-minute TTL and priority mesh routing
 
             ### How to install
-            1. Download **resq-mesh-debug.apk** from the Assets below
+            1. Download **resq-mesh-universal-debug.apk** (recommended, works on all devices) or your device architecture APK from Assets below
             2. On your Android phone: Settings → Security → **Allow unknown sources**
             3. Open the downloaded APK and tap **Install**
-          files: artifacts/resq-mesh-debug.apk
+          files: artifacts/*.apk
           prerelease: false
           make_latest: true
           token: ${{ secrets.GITHUB_TOKEN }}
